@@ -14,6 +14,7 @@
 #include <VersionHelpers.h>
 #include <ole2.h>  // For Gdiplus.h.
 #include <gdiplus.h>
+#include <gdiplusImageCodec.h>
 
 #include <cmath>
 #include <cassert>
@@ -182,6 +183,7 @@ struct Measure
 	int						m_iBmpAvg;					// current sample average index
 	Gdiplus::Bitmap*		m_bitmap[MAX_CHANNELS];		// waveform bitmap
 	float					m_bmpPeak[MAX_CHANNELS][2];	// accumulators for peaks
+	std::wstring			m_bmpPath;					// device friendly name (detected in init)
 
 	Measure() :
 		m_port(PORT_OUTPUT),
@@ -274,6 +276,7 @@ const IID IID_IAudioCaptureClient = __uuidof(IAudioCaptureClient);
 const IID IID_IAudioRenderClient = __uuidof(IAudioRenderClient);
 
 std::vector<Measure*> s_parents;
+CLSID s_pngClsid;
 
 
 /**
@@ -322,6 +325,37 @@ UINT32 _InterpColor (UINT32 a, UINT32 b, float alpha)
 
 
 /**
+ * Find encoder class ID.
+ */
+void _FindGdiEncClsid (const WCHAR* format, CLSID* pClsid)
+{
+	UINT  num = 0;          // number of image encoders
+	UINT  size = 0;         // size of the image encoder array in bytes
+
+	Gdiplus::ImageCodecInfo* pImageCodecInfo = NULL;
+	Gdiplus::GetImageEncodersSize(&num, &size);
+	if(size)
+	{
+		pImageCodecInfo = (Gdiplus::ImageCodecInfo*)(malloc(size));
+		assert(pImageCodecInfo);		// failed to alloc memory for codec info?
+
+		Gdiplus::GetImageEncoders(num, size, pImageCodecInfo);
+
+		for(UINT j = 0; j < num; ++j)
+		{
+			if( wcscmp(pImageCodecInfo[j].MimeType, format) == 0 )
+			{
+				*pClsid = pImageCodecInfo[j].Clsid;
+				break;
+			}
+		}
+
+		free(pImageCodecInfo);
+	}
+}
+
+
+/**
  * Create and initialize a measure instance.  Creates WASAPI loopback
  * device if not a child measure.
  *
@@ -330,6 +364,16 @@ UINT32 _InterpColor (UINT32 a, UINT32 b, float alpha)
  */
 PLUGIN_EXPORT void Initialize (void** data, void* rm)
 {
+	// Plugin requires at least Windows Vista
+	if (!IsWindowsVistaOrGreater())
+	{
+		RmLog(rm, LOG_ERROR, L"AudioLevel.dll requires Windows Vista or later.");
+		return;
+	}
+
+	// find the PNG codec class ID
+	_FindGdiEncClsid(L"image/png", &s_pngClsid);
+
 	Measure* m = new Measure;
 	m->m_skin = RmGetSkin(rm);
 	m->m_rmName = RmGetMeasureName(rm);
@@ -572,6 +616,9 @@ PLUGIN_EXPORT void Reload (void* data, void* rm, double* maxValue)
 	m->m_bandIdx = m->m_parent ?
 		min(m->m_parent->m_nBands, m->m_bandIdx) :
 		min(m->m_nBands, m->m_bandIdx);
+
+	// parse waveform output path
+	m->m_bmpPath = RmReadPath(rm, L"WaveformFile", NULL);
 
 	// parse envelope values on parents only
 	if (!m->m_parent)
@@ -825,7 +872,7 @@ PLUGIN_EXPORT double Update (void* data)
 							float fLog1 = m->m_bandFreq[iBand];
 							float x = (m->m_fftOut[iChan])[iBin];
 							float& y = (m->m_bandOut[iChan])[iBand];
-							
+
 							if(fLin1 <= fLog1)
 							{
 								y += (fLin1 - f0) * x * scalar;
@@ -1039,6 +1086,14 @@ PLUGIN_EXPORT double Update (void* data)
 			}
 		}
 		break;
+
+	case Measure::TYPE_WAVEFORM:
+		// if specified, write the bitmap out to a .png file
+		if(!m->m_bmpPath.empty() && parent->m_bitmap[m->m_channel]) {
+			parent->m_bitmap[m->m_channel]->Save(m->m_bmpPath.c_str(), &s_pngClsid, NULL);
+		}
+		break;
+
 	}
 
 	return 0.0;
@@ -1286,7 +1341,7 @@ HRESULT	Measure::DeviceInit ()
 		m_bandFreq = (float*)malloc(m_nBands * sizeof(float));
 		const double step = (log(m_freqMax / m_freqMin) / m_nBands) / log(2.0);
 		m_bandFreq[0] = (float)(m_freqMin * pow(2.0, step / 2.0));
-		
+
 		for (int iBand = 1; iBand < m_nBands; ++iBand)
 		{
 			m_bandFreq[iBand] = (float)(m_bandFreq[iBand - 1] * pow(2.0, step));

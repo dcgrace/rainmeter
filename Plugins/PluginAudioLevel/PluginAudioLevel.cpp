@@ -183,7 +183,7 @@ struct Measure
 	int						m_iBmpAvg;					// current sample average index
 	Gdiplus::Bitmap*		m_bitmap[MAX_CHANNELS];		// waveform bitmap
 	float					m_bmpPeak[MAX_CHANNELS][2];	// accumulators for peaks
-	std::wstring			m_bmpPath;					// device friendly name (detected in init)
+	std::wstring			m_bmpPath;					// filename of output image file (old RM version workaround)
 
 	Measure() :
 		m_port(PORT_OUTPUT),
@@ -285,21 +285,24 @@ CLSID s_pngClsid;
 UINT32 _ParseColor (void* rm, LPCWSTR option, UINT32 defValue)
 {
 	LPCWSTR str = RmReadString(rm, option, L"");
-	int r,g,b,a;
-	if(
-			(swscanf(str, L"%d, %d, %d, %d", &r, &g, &b, &a) == 4)
-			&& ((r >= 0) && (r < 256))
-			&& ((g >= 0) && (g < 256))
-			&& ((b >= 0) && (b < 256))
-			&& ((a >= 0) && (a < 256))
-	)
+	if(str && *str)
 	{
-		// return in ARGB format
-		return MAKE_COLOR(r, g, b, a);
-	}
-	else
-	{
-		RmLogF(rm, LOG_ERROR, L"Invalid %s color specifier '%s', should be R, G, B, A where each value is between 0 and 255.", option, str);
+		int r,g,b,a;
+		if(
+				(swscanf(str, L"%d, %d, %d, %d", &r, &g, &b, &a) == 4)
+				&& ((r >= 0) && (r < 256))
+				&& ((g >= 0) && (g < 256))
+				&& ((b >= 0) && (b < 256))
+				&& ((a >= 0) && (a < 256))
+		)
+		{
+			// return in ARGB format
+			return MAKE_COLOR(r, g, b, a);
+		}
+		else
+		{
+			RmLogF(rm, LOG_ERROR, L"Invalid %s color specifier '%s', should be R, G, B, A where each value is between 0 and 255.", option, str);
+		}
 	}
 	return defValue;
 }
@@ -327,7 +330,7 @@ UINT32 _InterpColor (UINT32 a, UINT32 b, float alpha)
 /**
  * Find encoder class ID.
  */
-void _FindGdiEncClsid (const WCHAR* format, CLSID* pClsid)
+static void _FindGdiEncClsid (const WCHAR* format, CLSID* pClsid)
 {
 	UINT  num = 0;          // number of image encoders
 	UINT  size = 0;         // size of the image encoder array in bytes

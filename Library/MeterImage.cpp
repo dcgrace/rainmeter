@@ -61,7 +61,10 @@ void MeterImage::LoadImage(const std::wstring& imageName, bool bLoadAlways)
 		m_Bitmap = m_Image.GetImage();
 
 		bool useMaskSize = false;
-		m_MaskImage.LoadImage(m_MaskImageName, true);
+		if (m_Skin->GetUseD2D())
+		{
+			m_MaskImage.LoadImage(m_MaskImageName, true);
+		}
 		if (m_MaskImage.IsLoaded()) useMaskSize = true;
 
 		// Calculate size of the meter

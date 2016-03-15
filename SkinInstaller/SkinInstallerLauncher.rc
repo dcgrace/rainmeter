@@ -1,5 +1,4 @@
 #include <Windows.h>
-#include "resource.h"
 #include "../Version.h"
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
@@ -27,10 +26,10 @@ VS_VERSION_INFO VERSIONINFO
     {
         BLOCK "040904E4"
         {
-            VALUE "FileDescription", "Rainmeter Skin Installer"
             VALUE "FileVersion", STRFILEVER
-            VALUE "LegalCopyright", "© 2013 - All authors"
+            VALUE "LegalCopyright", "© 2016 Rainmeter Team"
             VALUE "OriginalFilename", "SkinInstaller.exe"
+            VALUE "CompanyName", "Rainmeter"
             VALUE "ProductName", "Rainmeter"
 #ifdef _WIN64
             VALUE "ProductVersion", STRPRODUCTVER " (64-bit)"
@@ -50,6 +49,4 @@ VS_VERSION_INFO VERSIONINFO
 // Icon
 //
 
-// Icon with lowest ID value placed first to ensure application icon
-// remains consistent on all systems.
-IDI_SKININSTALLER           ICON    DISCARDABLE     "res/Rainstaller.ico"
+100           ICON    DISCARDABLE     "res/Rainstaller.ico"

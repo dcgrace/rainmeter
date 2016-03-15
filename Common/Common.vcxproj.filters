@@ -1,6 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <ClCompile Include="CharacterEntityReference.cpp" />
     <ClCompile Include="Dialog.cpp" />
     <ClCompile Include="MenuTemplate.cpp" />
     <ClCompile Include="PathUtil.cpp" />
@@ -8,31 +9,16 @@
     <ClCompile Include="StringUtil.cpp" />
     <ClCompile Include="ControlTemplate.cpp" />
     <ClCompile Include="MathParser.cpp" />
-    <ClCompile Include="Gfx\Canvas.cpp">
-      <Filter>Gfx</Filter>
-    </ClCompile>
-    <ClCompile Include="Gfx\CanvasD2D.cpp">
-      <Filter>Gfx</Filter>
-    </ClCompile>
-    <ClCompile Include="Gfx\CanvasGDIP.cpp">
-      <Filter>Gfx</Filter>
-    </ClCompile>
     <ClCompile Include="Gfx\FontCollection.cpp">
       <Filter>Gfx</Filter>
     </ClCompile>
     <ClCompile Include="Gfx\FontCollectionD2D.cpp">
       <Filter>Gfx</Filter>
     </ClCompile>
-    <ClCompile Include="Gfx\FontCollectionGDIP.cpp">
-      <Filter>Gfx</Filter>
-    </ClCompile>
     <ClCompile Include="Gfx\TextFormat.cpp">
       <Filter>Gfx</Filter>
     </ClCompile>
     <ClCompile Include="Gfx\TextFormatD2D.cpp">
-      <Filter>Gfx</Filter>
-    </ClCompile>
-    <ClCompile Include="Gfx\TextFormatGDIP.cpp">
       <Filter>Gfx</Filter>
     </ClCompile>
     <ClCompile Include="Gfx\Util\DWriteHelpers.cpp">
@@ -93,6 +79,10 @@
     <ClCompile Include="Gfx\TextInlineFormat\TextInlineFormatWeight.cpp">
       <Filter>Gfx\TextInlineFormat</Filter>
     </ClCompile>
+    <ClCompile Include="FileUtil.cpp" />
+    <ClCompile Include="Gfx\Canvas.cpp">
+      <Filter>Gfx</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Dialog.h" />
@@ -105,31 +95,16 @@
     <ClInclude Include="MathParser.h" />
     <ClInclude Include="UnitTest.h" />
     <ClInclude Include="Timer.h" />
-    <ClInclude Include="Gfx\Canvas.h">
-      <Filter>Gfx</Filter>
-    </ClInclude>
-    <ClInclude Include="Gfx\CanvasD2D.h">
-      <Filter>Gfx</Filter>
-    </ClInclude>
-    <ClInclude Include="Gfx\CanvasGDIP.h">
-      <Filter>Gfx</Filter>
-    </ClInclude>
     <ClInclude Include="Gfx\FontCollection.h">
       <Filter>Gfx</Filter>
     </ClInclude>
     <ClInclude Include="Gfx\FontCollectionD2D.h">
       <Filter>Gfx</Filter>
     </ClInclude>
-    <ClInclude Include="Gfx\FontCollectionGDIP.h">
-      <Filter>Gfx</Filter>
-    </ClInclude>
     <ClInclude Include="Gfx\TextFormat.h">
       <Filter>Gfx</Filter>
     </ClInclude>
     <ClInclude Include="Gfx\TextFormatD2D.h">
-      <Filter>Gfx</Filter>
-    </ClInclude>
-    <ClInclude Include="Gfx\TextFormatGDIP.h">
       <Filter>Gfx</Filter>
     </ClInclude>
     <ClInclude Include="Gfx\Util\DWriteHelpers.h">
@@ -189,6 +164,11 @@
     </ClInclude>
     <ClInclude Include="Gfx\TextInlineFormat\TextInlineFormatWeight.h">
       <Filter>Gfx\TextInlineFormat</Filter>
+    </ClInclude>
+    <ClInclude Include="FileUtil.h" />
+    <ClInclude Include="ScopedFunction.h" />
+    <ClInclude Include="Gfx\Canvas.h">
+      <Filter>Gfx</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

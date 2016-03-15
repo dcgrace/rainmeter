@@ -6,7 +6,9 @@
  * obtain one at <https://www.gnu.org/licenses/gpl-2.0.html>. */
 
 #include "StdAfx.h"
+#include "../Common/Gfx/Canvas.h"
 #include "../Common/PathUtil.h"
+#include "../Common/Platform.h"
 #include "Rainmeter.h"
 #include "TrayIcon.h"
 #include "System.h"
@@ -95,7 +97,6 @@ int RainmeterMain(LPWSTR cmdLine)
 */
 Rainmeter::Rainmeter() :
 	m_TrayIcon(),
-	m_UseD2D(true),
 	m_Debug(false),
 	m_DisableVersionCheck(false),
 	m_NewVersion(false),
@@ -145,6 +146,12 @@ Rainmeter& Rainmeter::GetInstance()
 */
 int Rainmeter::Initialize(LPCWSTR iniPath, LPCWSTR layout)
 {
+	if (!IsWindows7SP1OrGreater() || !Gfx::Canvas::Initialize())
+	{
+		MessageBox(nullptr, L"Rainmeter requires Windows 7 SP1 (with Platform Update) or later.\n\nFor Windows XP or Vista, you can download Rainmeter 3.3 from www.rainmeter.net", APPNAME, MB_OK | MB_TOPMOST | MB_ICONERROR);
+		return 1;
+	}
+
 	m_Instance = GetModuleHandle(L"Rainmeter");
 
 	WCHAR* buffer = new WCHAR[MAX_LINE_LENGTH];
@@ -420,6 +427,8 @@ void Rainmeter::Finalize()
 	MeasureCPU::FinalizeStatic();
 	MeterString::FinalizeStatic();
 
+	Gfx::Canvas::Finalize();
+
 	// Change the work area back
 	if (m_DesktopWorkAreaChanged)
 	{
@@ -548,11 +557,10 @@ LRESULT CALLBACK Rainmeter::MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 		break;
 
 	case WM_RAINMETER_DELAYED_EXECUTE:
-		if (lParam)
+		if (!wParam || GetRainmeter().HasSkin((Skin*)wParam))
 		{
-			// Execute bang
 			WCHAR* bang = (WCHAR*)lParam;
-			GetRainmeter().ExecuteCommand(bang, nullptr);
+			GetRainmeter().ExecuteCommand(bang, (Skin*)wParam);
 			free(bang);  // _wcsdup()
 		}
 		break;
@@ -804,7 +812,7 @@ bool Rainmeter::ActivateSkin(const std::wstring& folderPath)
 		{
 			// Activate the next index.
 			ActivateSkin(
-				index, (skinFolder.active < skinFolder.files.size()) ? skinFolder.active : 0);
+				index, (skinFolder.active < (int16_t)skinFolder.files.size()) ? skinFolder.active : 0);
 		}
 
 		return true;
@@ -832,7 +840,7 @@ bool Rainmeter::ActivateSkin(const std::wstring& folderPath, const std::wstring&
 void Rainmeter::ActivateSkin(int folderIndex, int fileIndex)
 {
 	if (folderIndex >= 0 && folderIndex < m_SkinRegistry.GetFolderCount() &&
-		fileIndex >= 0 && fileIndex < m_SkinRegistry.GetFolder(folderIndex).files.size())
+		fileIndex >= 0 && fileIndex < (int)m_SkinRegistry.GetFolder(folderIndex).files.size())
 	{
 		auto& skinFolder = m_SkinRegistry.GetFolder(folderIndex);
 		const std::wstring& file = skinFolder.files[fileIndex].filename;
@@ -909,7 +917,7 @@ void Rainmeter::DeactivateSkin(Skin* skin, int folderIndex, bool save)
 void Rainmeter::ToggleSkin(int folderIndex, int fileIndex)
 {
 	if (folderIndex >= 0 && folderIndex < m_SkinRegistry.GetFolderCount() &&
-		fileIndex >= 0 && fileIndex < m_SkinRegistry.GetFolder(folderIndex).files.size())
+		fileIndex >= 0 && fileIndex < (int)m_SkinRegistry.GetFolder(folderIndex).files.size())
 	{
 		if (m_SkinRegistry.GetFolder(folderIndex).active == fileIndex + 1)
 		{
@@ -1185,7 +1193,7 @@ void Rainmeter::ScanForLayouts()
 
 	hSearch = FindFirstFileEx(
 		folders.c_str(),
-		(IsWindows7OrGreater()) ? FindExInfoBasic : FindExInfoStandard,
+		FindExInfoBasic,
 		&fileData,
 		FindExSearchNameMatch,
 		nullptr,
@@ -1252,10 +1260,10 @@ void Rainmeter::ExecuteCommand(const WCHAR* command, Skin* skin, bool multi)
 ** Executes command when current processing is done.
 **
 */
-void Rainmeter::DelayedExecuteCommand(const WCHAR* command)
+void Rainmeter::DelayedExecuteCommand(const WCHAR* command, Skin* skin)
 {
 	WCHAR* bang = _wcsdup(command);
-	PostMessage(m_Window, WM_RAINMETER_DELAYED_EXECUTE, (WPARAM)nullptr, (LPARAM)bang);
+	PostMessage(m_Window, WM_RAINMETER_DELAYED_EXECUTE, (WPARAM)skin, (LPARAM)bang);
 }
 
 /*
@@ -1271,8 +1279,6 @@ void Rainmeter::ReadGeneralSettings(const std::wstring& iniFile)
 
 	ConfigParser parser;
 	parser.Initialize(iniFile, nullptr, nullptr);
-
-	m_UseD2D = parser.ReadBool(L"Rainmeter", L"UseD2D", true);
 
 	m_Debug = parser.ReadBool(L"Rainmeter", L"Debug", false);
 	
@@ -1496,7 +1502,6 @@ bool Rainmeter::LoadLayout(const std::wstring& name)
 		PreserveSetting(backup, L"TrayExecuteR", false);
 		PreserveSetting(backup, L"TrayExecuteDM", false);
 		PreserveSetting(backup, L"TrayExecuteDR", false);
-		PreserveSetting(backup, L"UseD2D");
 
 		// Set wallpaper if it exists
 		if (_waccess(wallpaper.c_str(), 0) != -1)
@@ -1805,14 +1810,4 @@ void Rainmeter::TestSettingsFile(bool bDefaultIniLocation)
 
 		ShowMessage(nullptr, error.c_str(), MB_OK | MB_ICONERROR);
 	}
-}
-
-void Rainmeter::SetUseD2D(bool enabled)
-{
-	m_UseD2D = enabled;
-
-	// Save to Rainmeter.ini
-	WritePrivateProfileString(L"Rainmeter", L"UseD2D", enabled ? L"1" : L"0", m_IniFile.c_str());
-
-	RefreshAll();
 }

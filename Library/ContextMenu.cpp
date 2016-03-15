@@ -7,7 +7,7 @@
 
 #include "StdAfx.h"
 #include "../Common/MenuTemplate.h"
-#include "../Common/Gfx/CanvasD2D.h"
+#include "../Common/Gfx/Canvas.h"
 #include "ContextMenu.h"
 #include "Rainmeter.h"
 #include "Util.h"
@@ -261,7 +261,6 @@ HMENU ContextMenu::CreateSkinMenu(Skin* skin, int index, HMENU menu)
 			MENU_ITEM(IDM_SKIN_SNAPTOEDGES, ID_STR_SNAPTOEDGES),
 			MENU_ITEM(IDM_SKIN_CLICKTHROUGH, ID_STR_CLICKTHROUGH),
 			MENU_ITEM(IDM_SKIN_KEEPONSCREEN, ID_STR_KEEPONSCREEN),
-			MENU_ITEM(IDM_SKIN_USED2D, ID_STR_USED2D),
 			MENU_ITEM(IDM_SKIN_FAVORITE, ID_STR_FAVORITE)),
 		MENU_SEPARATOR(),
 		MENU_ITEM(IDM_SKIN_MANAGESKIN, ID_STR_MANAGESKIN),
@@ -373,23 +372,6 @@ HMENU ContextMenu::CreateSkinMenu(Skin* skin, int index, HMENU menu)
 		{
 			CheckMenuItem(settingsMenu, IDM_SKIN_KEEPONSCREEN, MF_BYCOMMAND | MF_CHECKED);
 		}
-
-		if (Gfx::CanvasD2D::Initialize())
-		{
-			if (!Rainmeter::GetInstance().GetUseD2D())
-			{
-				EnableMenuItem(settingsMenu, IDM_SKIN_USED2D, MF_BYCOMMAND | MF_GRAYED);
-			}
-			else if (skin->GetUseD2D())
-			{
-				CheckMenuItem(settingsMenu, IDM_SKIN_USED2D, MF_BYCOMMAND | MF_CHECKED);
-			}
-		}
-		else
-		{
-			DeleteMenu(settingsMenu, IDM_SKIN_USED2D, MF_BYCOMMAND);
-		}
-		Gfx::CanvasD2D::Finalize();
 
 		if (skin->GetFavorite())
 		{
@@ -539,14 +521,14 @@ void ContextMenu::AppendSkinCustomMenu(
 
 		if (position != 0 && !standaloneMenu)
 		{
-			InsertMenu(menu, 1, MF_BYPOSITION | MF_STRING | MF_GRAYED, 0, L"Custom skin actions");
+			InsertMenu(menu, 1, MF_BYPOSITION | MF_STRING | MF_GRAYED, 0, GetString(ID_STR_CUSTOMSKINACTIONS));
 			InsertMenu(menu, 1, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
 		}
 	}
 	else
 	{
 		HMENU customMenu = CreatePopupMenu();
-		InsertMenu(menu, 1, MF_BYPOSITION | MF_POPUP, (UINT_PTR)customMenu, L"Custom skin actions");
+		InsertMenu(menu, 1, MF_BYPOSITION | MF_POPUP, (UINT_PTR)customMenu, GetString(ID_STR_CUSTOMSKINACTIONS));
 
 		for (size_t i = 0; i < titleSize; ++i)
 		{
@@ -574,7 +556,7 @@ int ContextMenu::CreateSkinsMenuRecursive(HMENU skinMenu, int index, bool isFavo
 	// For "Favorites" menu, index starts at 0
 	int menuIndex = isFavoriteMenu ? 0 : 3;
 
-	const size_t max = skinRegistry.GetFolderCount();
+	const int max = (int)skinRegistry.GetFolderCount();
 	while (index < max)
 	{
 		const SkinRegistry::Folder& skinFolder = skinRegistry.GetFolder(index);

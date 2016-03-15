@@ -7,7 +7,7 @@
 
 #include "StdAfx.h"
 #include "TextFormatD2D.h"
-#include "CanvasD2D.h"
+#include "Canvas.h"
 #include "Util/DWriteHelpers.h"
 #include "TextInlineFormat/TextInlineFormatCharacterSpacing.h"
 #include "TextInlineFormat/TextInlineFormatColor.h"
@@ -93,26 +93,55 @@ bool TextFormatD2D::CreateLayout(ID2D1RenderTarget* target,
 		// GDI+ compatibility: If we trimming (i.e. clipping), GDI+ draws text lines even if they
 		// would be clipped. This is arguably a bad 'feature', but some in some cases the height
 		// might be just a pixel or two too small. In order to render those cases correctly (but
-		// still clipped as CanvasD2D::DrawTextW() will clip), we'll increase the max height of
+		// still clipped as Canvas::DrawTextW() will clip), we'll increase the max height of
 		// the layout.
 		maxH += 2.0f;
 	}
 
+	// Inline gradients need to be created/recreated not only when the text changes,
+	// but also when the dimensions of the meter changes.
+	auto CreateGradientBrushes = [&]()
+	{
+		// Build gradient brushes (if any)
+		for (const auto& fmt : m_TextInlineFormat)
+		{
+			if (fmt->GetType() == Gfx::InlineType::GradientColor)
+			{
+				auto option = dynamic_cast<TextInlineFormat_GradientColor*>(fmt.get());
+				option->BuildGradientBrushes(target, m_TextLayout.Get());
+			}
+		}
+
+		// Because the text layout can be created without any changes to any
+		// 'color' inline options, we need a way to update any color changes
+		// at drawing time. 
+		m_HasInlineOptionsChanged = true;
+	};
+
 	if (m_TextLayout && !strChanged && !m_HasInlineOptionsChanged)
 	{
+		bool hasChanged = false;
 		if (maxW != m_TextLayout->GetMaxWidth())
 		{
 			m_TextLayout->SetMaxWidth(maxW);
+			hasChanged = true;
 		}
 
 		if (maxH != m_TextLayout->GetMaxHeight())
 		{
 			m_TextLayout->SetMaxHeight(maxH);
+			hasChanged = true;
+		}
+
+		if (hasChanged)
+		{
+			// Meter dimensions have changed, so recreate any inline gradient brushes
+			CreateGradientBrushes();
 		}
 	}
 	else
 	{
-		CanvasD2D::c_DWFactory->CreateTextLayout(
+		Canvas::c_DWFactory->CreateTextLayout(
 			str, strLen, m_TextFormat.Get(), maxW, maxH, m_TextLayout.ReleaseAndGetAddressOf());
 		if (!m_TextLayout) return false;
 
@@ -146,20 +175,8 @@ bool TextFormatD2D::CreateLayout(ID2D1RenderTarget* target,
 			}
 		}
 
-		// Build gradient brushes (if any)
-		for (const auto& fmt : m_TextInlineFormat)
-		{
-			if (fmt->GetType() == Gfx::InlineType::GradientColor)
-			{
-				auto option = dynamic_cast<TextInlineFormat_GradientColor*>(fmt.get());
-				option->BuildGradientBrushes(target, m_TextLayout.Get());
-			}
-		}
-
-		// Because the text layout can be created without any changes to any
-		// 'color' inline options, we need a way to update any color changes
-		// at drawing time. 
-		m_HasInlineOptionsChanged = true;
+		// Create any inline gradients
+		CreateGradientBrushes();
 	}
 
 	return true;
@@ -185,11 +202,11 @@ void TextFormatD2D::SetProperties(
 	// using the GDI family name and then create a text format using the DirectWrite family name
 	// obtained from it.
 	HRESULT hr = Util::GetDWritePropertiesFromGDIProperties(
-		CanvasD2D::c_DWFactory.Get(), fontFamily, bold, italic, dwriteFontWeight, dwriteFontStyle,
+		Canvas::c_DWFactory.Get(), fontFamily, bold, italic, dwriteFontWeight, dwriteFontStyle,
 		dwriteFontStretch, dwriteFamilyName, _countof(dwriteFamilyName));
 	if (SUCCEEDED(hr))
 	{
-		hr = CanvasD2D::c_DWFactory->CreateTextFormat(
+		hr = Canvas::c_DWFactory->CreateTextFormat(
 			dwriteFamilyName,
 			nullptr,
 			dwriteFontWeight,
@@ -206,7 +223,7 @@ void TextFormatD2D::SetProperties(
 
 		// If |fontFamily| is not in the system collection, use the font collection from
 		// |fontCollectionD2D| if possible.
-		if (!Util::IsFamilyInSystemFontCollection(CanvasD2D::c_DWFactory.Get(), fontFamily) &&
+		if (!Util::IsFamilyInSystemFontCollection(Canvas::c_DWFactory.Get(), fontFamily) &&
 			(fontCollectionD2D && fontCollectionD2D->InitializeCollection()))
 		{
 			IDWriteFont* dwriteFont = Util::FindDWriteFontInFontCollectionByGDIFamilyName(
@@ -230,7 +247,7 @@ void TextFormatD2D::SetProperties(
 		}
 
 		// Fallback in case above fails.
-		hr = CanvasD2D::c_DWFactory->CreateTextFormat(
+		hr = Canvas::c_DWFactory->CreateTextFormat(
 			fontFamily,
 			dwriteFontCollection,
 			dwriteFontWeight,
@@ -315,7 +332,7 @@ DWRITE_TEXT_METRICS TextFormatD2D::GetMetrics(
 
 	DWRITE_TEXT_METRICS metrics = {0};
 	Microsoft::WRL::ComPtr<IDWriteTextLayout> textLayout;
-	HRESULT hr = CanvasD2D::c_DWFactory->CreateTextLayout(
+	HRESULT hr = Canvas::c_DWFactory->CreateTextLayout(
 		str,
 		strLen,
 		m_TextFormat.Get(),
@@ -383,7 +400,7 @@ void TextFormatD2D::SetTrimming(bool trim)
 	{
 		if (!m_InlineEllipsis)
 		{
-			CanvasD2D::c_DWFactory->CreateEllipsisTrimmingSign(
+			Canvas::c_DWFactory->CreateEllipsisTrimmingSign(
 				m_TextFormat.Get(), m_InlineEllipsis.GetAddressOf());
 		}
 
@@ -426,26 +443,27 @@ void TextFormatD2D::ReadInlineOptions(ConfigParser& parser, const WCHAR* section
 {
 	const std::wstring delimiter(1, L'|');
 	std::wstring option = parser.ReadString(section, L"InlineSetting", L"");
-	std::wstring pattern = parser.ReadString(section, L"InlinePattern", L"");
+	std::wstring pattern = parser.ReadString(section, L"InlinePattern", L".*");
+	if (pattern.empty()) pattern = L".*";
 
 	size_t i = 1;
-	if (!option.empty() && !pattern.empty())
+	if (!option.empty())
 	{
 		do
 		{
 			std::vector<std::wstring> args = ConfigParser::Tokenize(option, delimiter);
 			if (!CreateInlineOption(i - 1, pattern, args)) break;
 
-			// Check for InlineOption2/InlineValue2 ... etc.
+			// Check for InlineSetting2/InlinePattern2 ... etc.
 			const std::wstring num = std::to_wstring(++i);
 
-			std::wstring key = L"InlineSetting" + num;
-			option = parser.ReadString(section, key.c_str(), L"");
-			if (option.empty()) break;
+			std::wstring key = L"InlinePattern" + num;
+			pattern = parser.ReadString(section, key.c_str(), L".*");
+			if (pattern.empty()) pattern = L".*";
 
-			key = L"InlinePattern" + num;
-			pattern = parser.ReadString(section, key.c_str(), L"");
-		} while (!pattern.empty());
+			key = L"InlineSetting" + num;
+			option = parser.ReadString(section, key.c_str(), L"");
+		} while (!option.empty());
 	}
 
 	// Remove any previous options that do not exist anymore
@@ -556,8 +574,9 @@ bool TextFormatD2D::CreateInlineOption(const size_t index, const std::wstring pa
 			// Special case to delete a specific index while keeping the rest of the options
 			m_TextInlineFormat.erase(m_TextInlineFormat.begin() + index);
 			m_HasInlineOptionsChanged = true;
-			return true;
 		}
+
+		return true;
 	}
 	else if (_wcsicmp(option, L"CHARACTERSPACING") == 0)
 	{

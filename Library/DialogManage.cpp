@@ -248,12 +248,9 @@ INT_PTR DialogManage::OnInitDialog(WPARAM wParam, LPARAM lParam)
 	item = m_TabSkins.GetControl(TabSkins::Id_FileLabel);
 	SendMessage(item, WM_SETFONT, (WPARAM)m_FontBold, 0);
 
-	if (IsWindowsVistaOrGreater())
-	{
-		// Use arrows instead of plus/minus in the tree for Vista+
-		item = m_TabSkins.GetControl(TabSkins::Id_SkinsTreeView);
-		SetWindowTheme(item, L"explorer", nullptr);
-	}
+	// Use arrows instead of plus/minus in the tree for Vista+
+	item = m_TabSkins.GetControl(TabSkins::Id_SkinsTreeView);
+	SetWindowTheme(item, L"explorer", nullptr);
 
 	if (c_WindowPlacement.length == 0)
 	{
@@ -288,7 +285,7 @@ INT_PTR DialogManage::OnCommand(WPARAM wParam, LPARAM lParam)
 
 	case Id_HelpButton:
 		{
-			std::wstring url = L"http://docs.rainmeter.net/manual/user-interface/manage#";
+			std::wstring url = L"https://docs.rainmeter.net/manual/user-interface/manage#";
 
 			Tab& tab = GetActiveTab();
 			if (&tab == &m_TabSkins)
@@ -916,7 +913,7 @@ int DialogManage::TabSkins::PopulateTree(HWND tree, TVINSERTSTRUCT& tvi, int ind
 {
 	int initialLevel = GetRainmeter().m_SkinRegistry.GetFolder(index).level;
 
-	const size_t max = GetRainmeter().m_SkinRegistry.GetFolderCount();
+	const int max = (int)GetRainmeter().m_SkinRegistry.GetFolderCount();
 	while (index < max)
 	{
 		const auto& skinFolder = GetRainmeter().m_SkinRegistry.GetFolder(index);
@@ -1843,7 +1840,7 @@ void DialogManage::TabSettings::Create(HWND owner)
 	const ControlTemplate::Control s_Controls[] =
 	{
 		CT_GROUPBOX(-1, ID_STR_GENERAL,
-			0, 0, 468, 131,
+			0, 0, 468, 118,
 			WS_VISIBLE, 0),
 		CT_LABEL(-1, ID_STR_LANGUAGESC,
 			6, 16, 107, 14,
@@ -1869,27 +1866,24 @@ void DialogManage::TabSettings::Create(HWND owner)
 		CT_CHECKBOX(Id_ShowTrayIconCheckBox, ID_STR_SHOWNOTIFICATIONAREAICON,
 			6, 81, 200, 9,
 			WS_VISIBLE | WS_TABSTOP, 0),
-		CT_CHECKBOX(Id_UseD2DCheckBox, ID_STR_USED2D,
-			6, 94, 200, 9,
-			WS_VISIBLE | WS_TABSTOP, 0),
 		CT_BUTTON(Id_ResetStatisticsButton, ID_STR_RESETSTATISTICS,
-			6, 110, buttonWidth + 20, 14,
+			6, 97, buttonWidth + 20, 14,
 			WS_VISIBLE | WS_TABSTOP, 0),
 
 		CT_GROUPBOX(-1, ID_STR_LOGGING,
-			0, 138, 468, 66,
+			0, 125, 468, 66,
 			WS_VISIBLE, 0),
 		CT_CHECKBOX(Id_VerboseLoggingCheckbox, ID_STR_DEBUGMODE,
-			6, 154, 200, 9,
+			6, 141, 200, 9,
 			WS_VISIBLE | WS_TABSTOP, 0),
 		CT_CHECKBOX(Id_LogToFileCheckBox, ID_STR_LOGTOFILE,
-			6, 167, 200, 9,
+			6, 154, 200, 9,
 			WS_VISIBLE | WS_TABSTOP, 0),
 		CT_BUTTON(Id_ShowLogFileButton, ID_STR_SHOWLOGFILE,
-			6, 183, buttonWidth + 20, 14,
+			6, 170, buttonWidth + 20, 14,
 			WS_VISIBLE | WS_TABSTOP, 0),
 		CT_BUTTON(Id_DeleteLogFileButton, ID_STR_DELETELOGFILE,
-			buttonWidth + 30, 183, buttonWidth + 20, 14,
+			buttonWidth + 30, 170, buttonWidth + 20, 14,
 			WS_VISIBLE | WS_TABSTOP, 0)
 	};
 
@@ -1951,15 +1945,6 @@ void DialogManage::TabSettings::Initialize()
 
 	bool iconEnabled = GetRainmeter().GetTrayIcon()->IsTrayIconEnabled();
 	Button_SetCheck(GetControl(Id_ShowTrayIconCheckBox), iconEnabled);
-
-	if (IsWindowsVistaOrGreater())
-	{
-		Button_SetCheck(GetControl(Id_UseD2DCheckBox), GetRainmeter().GetUseD2D());
-	}
-	else
-	{
-		Button_Enable(GetControl(Id_UseD2DCheckBox), FALSE);
-	}
 
 	m_Initialized = true;
 }
@@ -2117,10 +2102,6 @@ INT_PTR DialogManage::TabSettings::OnCommand(WPARAM wParam, LPARAM lParam)
 
 	case Id_ShowTrayIconCheckBox:
 		GetRainmeter().GetTrayIcon()->SetTrayIcon(!GetRainmeter().GetTrayIcon()->IsTrayIconEnabled());
-		break;
-
-	case Id_UseD2DCheckBox:
-		GetRainmeter().SetUseD2D(!GetRainmeter().GetUseD2D());
 		break;
 
 	default:

@@ -25,8 +25,8 @@ void CheckVersion(void* dummy)
 		return;
 	}
 
-	HINTERNET hUrlDump = InternetOpenUrl(
-		hRootHandle, L"http://rainmeter.github.io/rainmeter/release", nullptr, 0, INTERNET_FLAG_RESYNCHRONIZE, 0);
+	const WCHAR* url = L"http://rainmeter.github.io/rainmeter/v4";
+	HINTERNET hUrlDump = InternetOpenUrl(hRootHandle, url, nullptr, 0, INTERNET_FLAG_RESYNCHRONIZE, 0);
 	if (hUrlDump)
 	{
 		DWORD dwSize;

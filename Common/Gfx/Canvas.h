@@ -8,30 +8,30 @@
 #ifndef RM_GFX_CANVAS_H_
 #define RM_GFX_CANVAS_H_
 
-#include "FontCollection.h"
-#include "TextFormat.h"
+#include "FontCollectionD2D.h"
+#include "TextFormatD2D.h"
+#include "Util/WICBitmapDIB.h"
+#include <memory>
+#include <string>
+#include <ole2.h>  // For Gdiplus.h.
+#include <GdiPlus.h>
+#include <d2d1_1.h>
+#include <d2d1helper.h>
+#include <dwrite_1.h>
+#include <wincodec.h>
+#include <wrl/client.h>
 
 namespace Gfx {
 
-enum class Renderer
-{
-	GDIP,
-	D2D,
-
-	// Attempts to use D2D. If D2D is not available, fallbacks to use GDI+.
-	PreferD2D
-};
-
-// Provides methods for drawing text, bitmaps, etc.
-class __declspec(novtable) Canvas
+// Wraps Direct2D/DirectWrite.
+class Canvas
 {
 public:
-	virtual ~Canvas();
+	Canvas();
+	~Canvas();
 
-	Canvas(const Canvas& other) = delete;
-
-	// Creates the canvas using the specified rendering engine. May return nullptr.
-	static Canvas* Create(Renderer renderer);
+	static bool Initialize();
+	static void Finalize();
 
 	int GetW() const { return m_W; }
 	int GetH() const { return m_H; }
@@ -40,54 +40,56 @@ public:
 
 	// Resize the draw area of the Canvas. This function must not be called if BeginDraw() has been
 	// called and has not yet been matched by a correspoding call to EndDraw.
-	virtual void Resize(int w, int h);
+	void Resize(int w, int h);
 
-	// BeginDraw() must be matched by a corresponding call to EndDraw(). Drawing functions must be
-	// be called only between BeginDraw() and EndDraw().
-	virtual bool BeginDraw() = 0;
-	virtual void EndDraw() = 0;
+	bool BeginDraw();
+	void EndDraw();
 
-	// Allows the use of Gdiplus::Graphics to perform drawing. Must be called between BeginDraw()
-	// and EndDraw(). BeginGdiplusGraphicsContext() must be matched by a corresponding call to
-	// EndGdiplusGraphicsContext(). While in the Gdiplus context, non-const member functions of
-	// this class must not be called. 
-	virtual Gdiplus::Graphics& BeginGdiplusContext() = 0;
-	virtual void EndGdiplusContext() = 0;
+	Gdiplus::Graphics& BeginGdiplusContext();
+	void EndGdiplusContext();
 
-	// Returns a read-only DC. Must be called between BeginDraw() and EndDraw(). GetDC() must be
-	// matched by a corresponding call to ReleaseDC(). While in the Gdiplus context, non-const
-	// member functions of this class must not be called.
-	virtual HDC GetDC() = 0;
-	virtual void ReleaseDC(HDC dc) = 0;
+	HDC GetDC();
+	void ReleaseDC(HDC dc);
+	
+	FontCollection* CreateFontCollection() { return new FontCollectionD2D(); }
+	TextFormat* CreateTextFormat() { return new TextFormatD2D(); }
 
-	// The Create* functions allocate objects specific to this Canvas object.
-	virtual FontCollection* CreateFontCollection() = 0;
-	virtual TextFormat* CreateTextFormat() = 0;
+	bool IsTransparentPixel(int x, int y);
 
-	virtual bool IsTransparentPixel(int x, int y) = 0;
+	void SetTransform(const Gdiplus::Matrix& matrix);
+	void ResetTransform();
+	void RotateTransform(float angle, float x, float y, float dx, float dy);
 
-	virtual void SetTransform(const Gdiplus::Matrix& matrix) = 0;
-	virtual void ResetTransform() = 0;
-	virtual void RotateTransform(float angle, float x, float y, float dx, float dy) = 0;
+	void SetAntiAliasing(bool enable);
+	void SetTextAntiAliasing(bool enable);
 
-	virtual void SetAntiAliasing(bool enable) = 0;
-	virtual void SetTextAntiAliasing(bool enable) = 0;
+	void Clear(const Gdiplus::Color& color = Gdiplus::Color(0, 0, 0, 0));
 
-	virtual void Clear(const Gdiplus::Color& color = Gdiplus::Color(0, 0, 0, 0)) = 0;
+	void DrawTextW(const WCHAR* str, UINT strLen, const TextFormat& format, Gdiplus::RectF& rect,
+		const Gdiplus::SolidBrush& brush, bool applyInlineFormatting = false);
+	bool MeasureTextW(const WCHAR* str, UINT strLen, const TextFormat& format, Gdiplus::RectF& rect);
+	bool MeasureTextLinesW(const WCHAR* str, UINT strLen, const TextFormat& format, Gdiplus::RectF& rect, UINT& lines);
 
-	virtual void DrawTextW(const WCHAR* str, UINT strLen, const TextFormat& format, Gdiplus::RectF& rect,
-		const Gdiplus::SolidBrush& brush, bool applyInlineFormatting = false) = 0;
-	virtual bool MeasureTextW(const WCHAR* str, UINT strLen, const TextFormat& format, Gdiplus::RectF& rect) = 0;
-	virtual bool MeasureTextLinesW(const WCHAR* str, UINT strLen, const TextFormat& format, Gdiplus::RectF& rect, UINT& lines) = 0;
+	void DrawBitmap(Gdiplus::Bitmap* bitmap, const Gdiplus::Rect& dstRect, const Gdiplus::Rect& srcRect);
+	void DrawMaskedBitmap(Gdiplus::Bitmap* bitmap, Gdiplus::Bitmap* maskBitmap, const Gdiplus::Rect& dstRect,
+		const Gdiplus::Rect& srcRect, const Gdiplus::Rect& srcRect2);
 
-	virtual void DrawBitmap(Gdiplus::Bitmap* bitmap, const Gdiplus::Rect& dstRect, const Gdiplus::Rect& srcRect) = 0;
-	virtual void DrawMaskedBitmap(Gdiplus::Bitmap* bitmap, Gdiplus::Bitmap* maskBitmap, const Gdiplus::Rect& dstRect,
-		const Gdiplus::Rect& srcRect, const Gdiplus::Rect& srcRect2) = 0;
+	void FillRectangle(Gdiplus::Rect& rect, const Gdiplus::SolidBrush& brush);
 
-	virtual void FillRectangle(Gdiplus::Rect& rect, const Gdiplus::SolidBrush& brush) = 0;
+private:
+	friend class Canvas;
+	friend class FontCollectionD2D;
+	friend class TextFormatD2D;
+	friend class TextInlineFormat_Typography;
 
-protected:
-	Canvas();
+	Canvas(const Canvas& other) = delete;
+	Canvas& operator=(Canvas other) = delete;
+
+	bool BeginTargetDraw();
+	void EndTargetDraw();
+
+	// Sets the |m_Target| transformation to be equal to that of |m_GdipGraphics|.
+	void UpdateTargetTransform();
 
 	int m_W;
 	int m_H;
@@ -99,6 +101,26 @@ protected:
 	// the default DirectWrite output. Otherwise, the expected result should be similar to that of
 	// non-typographic GDI+.
 	bool m_AccurateText;
+
+	Microsoft::WRL::ComPtr<ID2D1RenderTarget> m_Target;
+
+	// Underlying pixel data shared by both m_Target and m_GdipBitmap.
+	Util::WICBitmapDIB m_Bitmap;
+
+	// GDI+ objects that share the pixel data of m_Bitmap.
+	std::unique_ptr<Gdiplus::Graphics> m_GdipGraphics;
+	std::unique_ptr<Gdiplus::Bitmap> m_GdipBitmap;
+
+	bool m_TextAntiAliasing;
+
+	// |true| if PushAxisAlignedClip()/PopAxisAlignedClip() can be used.
+	bool m_CanUseAxisAlignClip;
+
+	static UINT c_Instances;
+	static Microsoft::WRL::ComPtr<ID2D1Factory1> c_D2DFactory;
+	static Microsoft::WRL::ComPtr<IDWriteFactory1> c_DWFactory;
+	static Microsoft::WRL::ComPtr<IDWriteGdiInterop> c_DWGDIInterop;
+	static Microsoft::WRL::ComPtr<IWICImagingFactory> c_WICFactory;
 };
 
 }  // namespace Gfx

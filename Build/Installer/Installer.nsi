@@ -6,6 +6,9 @@
  * obtain one at <https://www.gnu.org/licenses/gpl-2.0.html>. */
 
 !verbose 3
+
+Unicode true
+
 !addplugindir ".\"
 !include "MUI2.nsh"
 !include "x64.nsh"
@@ -24,12 +27,13 @@
 !endif
 
 Name "Rainmeter"
+VIAddVersionKey "CompanyName" "Rainmeter"
 VIAddVersionKey "ProductName" "Rainmeter"
 VIAddVersionKey "FileDescription" "Rainmeter Installer"
 VIAddVersionKey "FileVersion" "${VERSION_FULL}"
 VIAddVersionKey "ProductVersion" "${VERSION_FULL}"
 VIAddVersionKey "OriginalFilename" "${OUTFILE}"
-VIAddVersionKey "LegalCopyright" "Copyright (C) 2009-2013 - All authors"
+VIAddVersionKey "LegalCopyright" "Copyright (C) 2016 Rainmeter Team"
 VIProductVersion "${VERSION_FULL}"
 BrandingText " "
 SetCompressor /SOLID lzma
@@ -39,23 +43,14 @@ ShowInstDetails nevershow
 AllowSkipFiles off
 XPStyle on
 OutFile "..\${OUTFILE}"
-ReserveFile "${NSISDIR}\Plugins\LangDLL.dll"
-ReserveFile "${NSISDIR}\Plugins\nsDialogs.dll"
-ReserveFile "${NSISDIR}\Plugins\System.dll"
+ReserveFile "${NSISDIR}\Plugins\x86-unicode\LangDLL.dll"
+ReserveFile "${NSISDIR}\Plugins\x86-unicode\nsDialogs.dll"
+ReserveFile "${NSISDIR}\Plugins\x86-unicode\System.dll"
 ReserveFile ".\UAC.dll"
 
 !define REQUIREDSPACE 5 ; Minimum required space for install (in MB)
 
-; Error levels (for silent install)
-!define ERROR_UNSUPPORTED	3
-!define ERROR_NOTADMIN		4
-!define ERROR_WRITEFAIL		5
-!define ERROR_NOVCREDIST	6
-!define ERROR_CLOSEFAIL		7
-
 ; Additional Windows definitions
-!define BCM_SETSHIELD 0x0000160c
-!define PF_XMMI_INSTRUCTIONS_AVAILABLE 6
 !define PF_XMMI64_INSTRUCTIONS_AVAILABLE 10
 
 !define MUI_ICON ".\Icon.ico"
@@ -95,104 +90,59 @@ Function .onInit
 	${EndIf}
 
 	${IfNot} ${UAC_IsInnerInstance}
-		${If} ${IsWin2000}
-		${OrIf} ${IsWinXP}
-		${AndIf} ${AtMostServicePack} 2
-		${OrIf} ${IsWin2003}
-		${AndIf} ${AtMostServicePack} 0
-			${IfNot} ${Silent}
-				MessageBox MB_OK|MB_ICONSTOP "Rainmeter requires Windows XP SP3 or later."
+		SetSilent normal
+
+		${If} ${IsWin7}
+			${IfNot} ${AtLeastServicePack} 1
+				MessageBox MB_OK|MB_ICONSTOP "Rainmeter ${VERSION_SHORT} requires at least Windows 7 with Service Pack 1.$\n$\nPlease install Service Pack 1 or download Rainmeter 3.3 from www.rainmeter.net"
+				Quit
 			${EndIf}
-			SetErrorLevel ${ERROR_UNSUPPORTED}
+
+			; Try instantiating a ID2D1Factory1 to check for presense of D2D 1.1.
+			!define D2D1_FACTORY_TYPE_SINGLE_THREADED 0
+			!define IID_ID2D1Factory1 {bb12d362-daee-4b9a-aa1d-14ba401cfa1f}
+			System::Call "d2d1::D2D1CreateFactory( \
+				i ${D2D1_FACTORY_TYPE_SINGLE_THREADED}, \
+				g '${IID_ID2D1Factory1}', \
+				p 0, \
+				*p .r0) i.r1"
+			${If} $1 <> 0
+				MessageBox MB_OK|MB_ICONSTOP "Rainmeter ${VERSION_SHORT} requires at least Windows 7 with the Platform Update installed.$\n$\nPlease install the Windows 7 Platform Update or download Rainmeter 3.3 from www.rainmeter.net"
+				Quit
+			${Endif}
+			; Call Release
+			System::Call "$0->2()"
+		${ElseIfNot} ${AtLeastWin8}
+			MessageBox MB_OK|MB_ICONSTOP "Rainmeter ${VERSION_SHORT} requires at least Windows 7 with Service Pack 1.$\n$\nFor XP and Vista, you can download Rainmeter 3.3 from www.rainmeter.net"
 			Quit
 		${EndIf}
 
-		System::Call 'kernel32::IsProcessorFeaturePresent(i${PF_XMMI_INSTRUCTIONS_AVAILABLE})i.r0'
+		System::Call 'kernel32::IsProcessorFeaturePresent(i${PF_XMMI64_INSTRUCTIONS_AVAILABLE})i.r0'
 		${If} $0 = 0
-			${IfNot} ${Silent}
-				MessageBox MB_OK|MB_ICONSTOP "Rainmeter requires a Pentium III or later processor."
-			${EndIf}
-			SetErrorLevel ${ERROR_UNSUPPORTED}
+			MessageBox MB_OK|MB_ICONSTOP "Rainmeter requires a Pentium 4 or later processor."
 			Quit
 		${EndIf}
 
 		ReadRegStr $0 HKLM "SOFTWARE\Rainmeter" "Language"
 		ReadRegDWORD $NonDefaultLanguage HKLM "SOFTWARE\Rainmeter" "NonDefault"
 
-		${IfNot} ${Silent}
-			${If} $0 == ""
-			${OrIf} $0 <> $LANGUAGE
-			${AndIf} $NonDefaultLanguage != 1
-				; New install or better match
-				LangDLL::LangDialog "$(^SetupCaption)" "Please select the installer language.$\n$(SELECTLANGUAGE)" AC ${LANGDLL_PARAMS} ""
-				Pop $0
-				${If} $0 == "cancel"
-					Abort
-				${EndIf}
-
-				${If} $0 <> $LANGUAGE
-					; User selected non-default language
-					StrCpy $NonDefaultLanguage 1
-				${EndIf}
+		${If} $0 == ""
+		${OrIf} $0 <> $LANGUAGE
+		${AndIf} $NonDefaultLanguage != 1
+			; New install or better match
+			LangDLL::LangDialog "$(^SetupCaption)" "Please select the installer language.$\n$(SELECTLANGUAGE)" AC ${LANGDLL_PARAMS} ""
+			Pop $0
+			${If} $0 == "cancel"
+				Abort
 			${EndIf}
 
-			StrCpy $LANGUAGE $0
-		${Else}
-			${If} $0 != ""
-				StrCpy $LANGUAGE $0
-			${EndIf}
-
-			${GetParameters} $R1
-
-			ClearErrors
-			${GetOptions} $R1 "/LANGUAGE=" $0
-			${IfNot} ${Errors}
-				${If} $LANGUAGE != $0
-					StrCpy $NonDefaultLanguage 1
-				${EndIf}
-
-				StrCpy $LANGUAGE $0
-			${EndIf}
-
-			${GetOptions} $R1 "/STARTUP=" $0
-			${If} $0 = 1
-				StrCpy $AutoStartup 1
-			${EndIf}
-
-			${GetOptions} $R1 "/PORTABLE=" $0
-			${If} $0 = 1
-				StrCpy $InstallPortable 1
-			${Else}
-				${IfNot} ${UAC_IsAdmin}
-					SetErrorLevel ${ERROR_NOTADMIN}
-					Quit
-				${EndIf}
-			${EndIf}
-
-			${GetOptions} $R1 "/VERSION=" $0
-			${If} $0 = 64
-				StrCpy $Install64Bit 1
-
-				${If} $INSTDIR == ""
-					StrCpy $INSTDIR "$PROGRAMFILES64\Rainmeter"
-				${EndIf}
-			${Else}
-				${If} $INSTDIR == ""
-					StrCpy $INSTDIR "$PROGRAMFILES\Rainmeter"
-				${EndIf}
-			${EndIf}
-
-			ClearErrors
-			CreateDirectory "$INSTDIR"
-			WriteINIStr "$INSTDIR\writetest~.rm" "1" "1" "1"
-			Delete "$INSTDIR\writetest~.rm"
-
-			${If} ${Errors}
-				RMDir "$INSTDIR"
-				SetErrorLevel ${ERROR_WRITEFAIL}
-				Quit
+			${If} $0 <> $LANGUAGE
+				; User selected non-default language
+				StrCpy $NonDefaultLanguage 1
 			${EndIf}
 		${EndIf}
+
+		StrCpy $LANGUAGE $0
 
 		; If the language was set to a non-existent language, reset it back to English.
 		${WordFind} ",${LANGUAGE_IDS}" ",$LANGUAGE," "E+1{" $0
@@ -314,6 +264,7 @@ Function PageOptions
 	${If} ${RunningX64}
 		${If} $InstallPortable = 1
 		${OrIf} $INSTDIR == ""
+		${OrIfNot} ${FileExists} "$INSTDIR\Rainmeter.exe"
 			${NSD_CreateCheckBox} 6u 54u 285u 12u "$(INSTALL64BIT)"
 			Pop $R2
 			StrCpy $1 30u
@@ -364,6 +315,11 @@ Function PageOptions
 		${If} $INSTDIR != ""
 			EnableWindow $R1 0
 			${NSD_SetText} $R0 "$INSTDIR"
+
+			${If} ${RunningX64}
+			${AndIfNot} ${FileExists} "$INSTDIR\Rainmeter.exe"
+				${NSD_Check} $R2
+			${EndIf}
 		${Else}
 			; Fresh install
 			${If} ${RunningX64}
@@ -499,14 +455,9 @@ FunctionEnd
 	File "..\..\${DIR}-Release\Rainmeter.exe"
 	File "..\..\${DIR}-Release\Rainmeter.dll"
 	File "..\..\${DIR}-Release\SkinInstaller.exe"
-	File "..\..\${DIR}-Release\SkinInstaller.dll"
 
 	SetOutPath "$INSTDIR\Plugins"
 	File /x *Example*.dll "..\..\${DIR}-Release\Plugins\*.dll"
-
-	SetOutPath "$INSTDIR\Runtime"
-	File "$%VS120COMNTOOLS%..\..\VC\redist\${ARCH}\Microsoft.VC120.CRT\msvcp120.dll"
-	File "$%VS120COMNTOOLS%..\..\VC\redist\${ARCH}\Microsoft.VC120.CRT\msvcr120.dll"
 !macroend
 
 !macro RemoveStartMenuShortcuts STARTMENUPATH
@@ -535,37 +486,6 @@ Section
 		StrCpy $InstArc "x86"
 	${EndIf}
 
-	${If} $InstallPortable <> 1
-	${AndIfNot} ${AtLeastWinVista}
-		; Download and install .NET if required
-		ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\NET Framework Setup\NDP\v2.0.50727" "Install"
-		${If} $0 <> 1
-			${If} $Install64Bit <> 1
-				NSISdl::download /TIMEOUT=30000 "http://download.microsoft.com/download/5/6/7/567758a3-759e-473e-bf8f-52154438565a/dotnetfx.exe" "$PLUGINSDIR\dotnetfx.exe"
-			${Else}
-				NSISdl::download /TIMEOUT=30000 "http://download.microsoft.com/download/a/3/f/a3f1bf98-18f3-4036-9b68-8e6de530ce0a/NetFx64.exe" "$PLUGINSDIR\dotnetfx.exe"
-			${EndIf}
-			Pop $0
-
-			${If} $0 == "success"
-				ExecWait '"$PLUGINSDIR\dotnetfx.exe" /q:a /c:"install /q"' $0
-				Delete "$PLUGINSDIR\dotnetfx.exe"
-
-				${If} $0 = 3010
-					SetRebootFlag true
-				${ElseIf} $0 <> 0
-					MessageBox MB_OK|MB_ICONSTOP "$(DOTNETINSTERROR)"
-					Quit
-				${EndIf}
-			${ElseIf} $0 == "cancel"
-				Quit
-			${Else}
-				MessageBox MB_OK|MB_ICONSTOP "$(DOTNETINSTERROR)"
-				Quit
-			${EndIf}
-		${EndIf}
-	${EndIf}
-
 	SetOutPath "$INSTDIR"
 
 	; Close Rainmeter (and wait up to five seconds)
@@ -581,21 +501,15 @@ Section
 		SendMessage $1 ${WM_CLOSE} 0 0
 
 		${If} $0 = 0
-			${If} ${Silent}
-				SetErrorLevel ${ERROR_CLOSEFAIL}
-				Quit
-			${Else}
-				MessageBox MB_RETRYCANCEL|MB_ICONSTOP "$(RAINMETERCLOSEERROR)" IDRETRY +2
-				Quit
-			${EndIf}
+			MessageBox MB_RETRYCANCEL|MB_ICONSTOP "$(RAINMETERCLOSEERROR)" IDRETRY +2
+			Quit
 		${EndIf}
 
 		Sleep 500
 	${Next}
 
 	; Move Rainmeter.ini to %APPDATA% if needed
-	${IfNot} ${Silent}
-	${AndIf} ${FileExists} "$INSTDIR\Rainmeter.ini"
+	${If} ${FileExists} "$INSTDIR\Rainmeter.ini"
 		${If} $InstallPortable <> 1
 			${If} $Install64Bit = 1
 			${AndIf} "$INSTDIR" == "$PROGRAMFILES64\Rainmeter"
@@ -625,9 +539,12 @@ SkipIniMove:
 	Delete "$INSTDIR\Rainmeter.chm"
 	Delete "$INSTDIR\Default.ini"
 	Delete "$INSTDIR\Launcher.exe"
+	Delete "$INSTDIR\SkinInstaller.dll"
 	Delete "$INSTDIR\Defaults\Plugins\FileView.dll"
+	Delete "$INSTDIR\Defaults\Plugins\AudioLevel.dll"
 	RMDir /r "$INSTDIR\Addons\Rainstaller"
 	RMDir /r "$INSTDIR\Addons\RainBackup"
+	RMDir /r "$INSTDIR\Runtime"
 
 	${If} $InstallPortable <> 1
 		CreateDirectory "$INSTDIR\Defaults"
@@ -645,7 +562,7 @@ SkipIniMove:
 		${EndIf}
 
 		Rename "$INSTDIR\Addons" "$INSTDIR\Defaults\Addons"
-		${Locate} "$INSTDIR\Plugins" "/L=F /M=*.dll /G=0" "MoveNonDefaultPlugins"
+		${Locate} "$INSTDIR\Plugins" "/L=F /M=*.dll /G=0" "HandlePlugins"
 	${EndIf}
 
 !ifdef INCLUDEFILES
@@ -764,15 +681,19 @@ Function RenameToRainmeterIni
 	Push $0
 FunctionEnd
 
-Function MoveNonDefaultPlugins
-	${If} $R7 != "AdvancedCPU.dll"
+Function HandlePlugins
+	${If} $R7 == "MediaKey.dll"
+	${OrIf} $R7 == "NowPlaying.dll"
+	${OrIf} $R7 == "RecycleManager.dll"
+	${OrIf} $R7 == "WebParser.dll"
+		Delete "$R9"
+	${ElseIf} $R7 != "ActionTimer.dll"
+	${AndIf} $R7 != "AdvancedCPU.dll"
 	${AndIf} $R7 != "CoreTemp.dll"
 	${AndIf} $R7 != "FileView.dll"
 	${AndIf} $R7 != "FolderInfo.dll"
 	${AndIf} $R7 != "InputText.dll"
 	${AndIf} $R7 != "iTunesPlugin.dll"
-	${AndIf} $R7 != "MediaKey.dll"
-	${AndIf} $R7 != "NowPlaying.dll"
 	${AndIf} $R7 != "PerfMon.dll"
 	${AndIf} $R7 != "PingPlugin.dll"
 	${AndIf} $R7 != "PowerPlugin.dll"
@@ -780,10 +701,10 @@ Function MoveNonDefaultPlugins
 	${AndIf} $R7 != "QuotePlugin.dll"
 	${AndIf} $R7 != "RecycleManager.dll"
 	${AndIf} $R7 != "ResMon.dll"
+	${AndIf} $R7 != "RunCommand.dll"
 	${AndIf} $R7 != "SpeedFanPlugin.dll"
 	${AndIf} $R7 != "SysInfo.dll"
 	${AndIf} $R7 != "VirtualDesktops.dll"
-	${AndIf} $R7 != "WebParser.dll"
 	${AndIf} $R7 != "WifiStatus.dll"
 	${AndIf} $R7 != "Win7AudioPlugin.dll"
 	${AndIf} $R7 != "WindowMessagePlugin.dll"
@@ -879,13 +800,8 @@ Section Uninstall
 		SendMessage $1 ${WM_CLOSE} 0 0
 
 		${If} $0 = 0
-			${If} ${Silent}
-				SetErrorLevel ${ERROR_CLOSEFAIL}
-				Quit
-			${Else}
-				MessageBox MB_RETRYCANCEL|MB_ICONSTOP "$(RAINMETERCLOSEERROR)" IDRETRY +2
-				Quit
-			${EndIf}
+			MessageBox MB_RETRYCANCEL|MB_ICONSTOP "$(RAINMETERCLOSEERROR)" IDRETRY +2
+			Quit
 		${EndIf}
 
 		Sleep 500

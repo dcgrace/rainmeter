@@ -27,7 +27,6 @@
 #include "MeasureScript.h"
 #include "../Version.h"
 #include "../Common/PathUtil.h"
-#include "../Common/Gfx/Canvas.h"
 
 using namespace Gdiplus;
 
@@ -55,12 +54,6 @@ enum INTERVAL
 };
 
 int Skin::c_InstanceCount = 0;
-
-HINSTANCE Skin::c_DwmInstance = nullptr;
-decltype(DwmEnableBlurBehindWindow)* Skin::c_DwmEnableBlurBehindWindow = nullptr;
-decltype(DwmGetColorizationColor)* Skin::c_DwmGetColorizationColor = nullptr;
-decltype(DwmSetWindowAttribute)* Skin::c_DwmSetWindowAttribute = nullptr;
-decltype(DwmIsCompositionEnabled)* Skin::c_DwmIsCompositionEnabled = nullptr;
 
 Skin::Skin(const std::wstring& folderPath, const std::wstring& file) : m_FolderPath(folderPath), m_FileName(file),
 	m_Canvas(),
@@ -113,7 +106,6 @@ Skin::Skin(const std::wstring& folderPath, const std::wstring& file) : m_FolderP
 	m_ClickThrough(false),
 	m_KeepOnScreen(true),
 	m_AutoSelectScreen(false),
-	m_UseD2D(true),
 	m_Dragging(false),
 	m_Dragged(false),
 	m_BackgroundMode(BGMODE_IMAGE),
@@ -135,19 +127,6 @@ Skin::Skin(const std::wstring& folderPath, const std::wstring& file) : m_FolderP
 	m_ToolTipHidden(false),
 	m_Favorite(false)
 {
-	if (!c_DwmInstance && IsWindowsVistaOrGreater() &&
-		(c_DwmInstance = System::RmLoadLibrary(L"dwmapi.dll")) != nullptr)
-	{
-		c_DwmEnableBlurBehindWindow =
-			(decltype(c_DwmEnableBlurBehindWindow))GetProcAddress(c_DwmInstance, "DwmEnableBlurBehindWindow");
-		c_DwmGetColorizationColor =
-			(decltype(c_DwmGetColorizationColor))GetProcAddress(c_DwmInstance, "DwmGetColorizationColor");
-		c_DwmSetWindowAttribute =
-			(decltype(c_DwmSetWindowAttribute))GetProcAddress(c_DwmInstance, "DwmSetWindowAttribute");
-		c_DwmIsCompositionEnabled =
-			(decltype(c_DwmIsCompositionEnabled))GetProcAddress(c_DwmInstance, "DwmIsCompositionEnabled");
-	}
-
 	if (c_InstanceCount == 0)
 	{
 		WNDCLASSEX wc = {sizeof(WNDCLASSEX)};
@@ -181,17 +160,6 @@ Skin::~Skin()
 	if (c_InstanceCount == 0)
 	{
 		UnregisterClass(METERWINDOW_CLASS_NAME, GetRainmeter().GetModuleInstance());
-
-		if (c_DwmInstance)
-		{
-			FreeLibrary(c_DwmInstance);
-			c_DwmInstance = nullptr;
-
-			c_DwmEnableBlurBehindWindow = nullptr;
-			c_DwmGetColorizationColor = nullptr;
-			c_DwmSetWindowAttribute = nullptr;
-			c_DwmIsCompositionEnabled = nullptr;
-		}
 	}
 }
 
@@ -257,9 +225,6 @@ void Skin::Dispose(bool refresh)
 			m_Window = nullptr;
 		}
 	}
-
-	delete m_Canvas;
-	m_Canvas = nullptr;
 }
 
 /*
@@ -307,11 +272,8 @@ void Skin::Initialize()
 */
 void Skin::IgnoreAeroPeek()
 {
-	if (c_DwmSetWindowAttribute)
-	{
-		BOOL bValue = TRUE;
-		c_DwmSetWindowAttribute(m_Window, DWMWA_EXCLUDED_FROM_PEEK, &bValue, sizeof(bValue));
-	}
+	BOOL bValue = TRUE;
+	DwmSetWindowAttribute(m_Window, DWMWA_EXCLUDED_FROM_PEEK, &bValue, sizeof(bValue));
 }
 
 /*
@@ -885,6 +847,13 @@ void Skin::DoBang(Bang bang, const std::vector<std::wstring>& args)
 		}
 		break;
 
+	case Bang::AutoSelectScreen:
+		{
+			int f = m_Parser.ParseInt(args[0].c_str(), 0);
+			SetAutoSelectScreen((f == -1) ? !m_AutoSelectScreen : f != 0);
+		}
+		break;
+
 	case Bang::SetTransparency:
 		{
 			const std::wstring& arg = args[0];
@@ -986,41 +955,35 @@ void Skin::DoDelayedCommand(const WCHAR* command, UINT delay)
 
 void Skin::ShowBlur()
 {
-	if (c_DwmGetColorizationColor && c_DwmIsCompositionEnabled && c_DwmEnableBlurBehindWindow)
+	SetBlur(true);
+
+	// Check that Aero and transparency is enabled
+	DWORD color;
+	BOOL opaque, enabled;
+	if (DwmGetColorizationColor(&color, &opaque) != S_OK)
 	{
-		SetBlur(true);
-
-		// Check that Aero and transparency is enabled
-		DWORD color;
-		BOOL opaque, enabled;
-		if (c_DwmGetColorizationColor(&color, &opaque) != S_OK)
-		{
-			opaque = TRUE;
-		}
-		if (c_DwmIsCompositionEnabled(&enabled) != S_OK)
-		{
-			enabled = FALSE;
-		}
-		if (opaque || !enabled) return;
-
-		if (m_BlurMode == BLURMODE_FULL)
-		{
-			if (m_BlurRegion) DeleteObject(m_BlurRegion);
-			m_BlurRegion = CreateRectRgn(0, 0, GetW(), GetH());
-		}
-
-		BlurBehindWindow(TRUE);
+		opaque = TRUE;
 	}
+	if (DwmIsCompositionEnabled(&enabled) != S_OK)
+	{
+		enabled = FALSE;
+	}
+	if (opaque || !enabled) return;
+
+	if (m_BlurMode == BLURMODE_FULL)
+	{
+		if (m_BlurRegion) DeleteObject(m_BlurRegion);
+		m_BlurRegion = CreateRectRgn(0, 0, GetW(), GetH());
+	}
+
+	BlurBehindWindow(TRUE);
 }
 
 void Skin::HideBlur()
 {
-	if (c_DwmEnableBlurBehindWindow)
-	{
-		SetBlur(false);
+	SetBlur(false);
 
-		BlurBehindWindow(FALSE);
-	}
+	BlurBehindWindow(FALSE);
 }
 
 /*
@@ -1029,80 +992,78 @@ void Skin::HideBlur()
 */
 void Skin::ResizeBlur(const std::wstring& arg, int mode)
 {
-	if (IsWindowsVistaOrGreater())
-	{
-		WCHAR* parseSz = _wcsdup(arg.c_str());
-		int type, x, y, w = 0, h = 0;
+	WCHAR* parseSz = _wcsdup(arg.c_str());
+	int type, x, y, w = 0, h = 0;
 
-		WCHAR* token = wcstok(parseSz, L",");
+	WCHAR* context = nullptr;
+	WCHAR* token = wcstok(parseSz, L",", &context);
+	if (token)
+	{
+		while (token[0] == L' ') ++token;
+		type = m_Parser.ParseInt(token, 0);
+
+		token = wcstok(nullptr, L",", &context);
 		if (token)
 		{
 			while (token[0] == L' ') ++token;
-			type = m_Parser.ParseInt(token, 0);
+			x = m_Parser.ParseInt(token, 0);
 
-			token = wcstok(nullptr, L",");
+			token = wcstok(nullptr, L",", &context);
 			if (token)
 			{
 				while (token[0] == L' ') ++token;
-				x = m_Parser.ParseInt(token, 0);
+				y = m_Parser.ParseInt(token, 0);
 
-				token = wcstok(nullptr, L",");
+				token = wcstok(nullptr, L",", &context);
 				if (token)
 				{
 					while (token[0] == L' ') ++token;
-					y = m_Parser.ParseInt(token, 0);
+					w = m_Parser.ParseInt(token, 0);
 
-					token = wcstok(nullptr, L",");
+					token = wcstok(nullptr, L",", &context);
 					if (token)
 					{
 						while (token[0] == L' ') ++token;
-						w = m_Parser.ParseInt(token, 0);
-
-						token = wcstok(nullptr, L",");
-						if (token)
-						{
-							while (token[0] == L' ') ++token;
-							h = m_Parser.ParseInt(token, 0);
-						}
+						h = m_Parser.ParseInt(token, 0);
 					}
 				}
 			}
 		}
-
-		if (w && h)
-		{
-			HRGN tempRegion;
-
-			switch (type)
-			{
-			case 1:
-				tempRegion = CreateRectRgn(x, y, w, h);
-				break;
-
-			case 2:
-				token = wcstok(nullptr, L",");
-				if (token)
-				{
-					while (token[0] == L' ') ++token;
-					int r =  m_Parser.ParseInt(token, 0);
-					tempRegion = CreateRoundRectRgn(x, y, w, h, r, r);
-				}
-				break;
-
-			case 3:
-				tempRegion = CreateEllipticRgn(x, y, w, h);
-				break;
-	
-			default:  // Unknown type
-				free(parseSz);
-				return;
-			}
-
-			CombineRgn(m_BlurRegion, m_BlurRegion, tempRegion, mode);
-			DeleteObject(tempRegion);
-		}
-		free(parseSz);
 	}
+
+	if (w && h)
+	{
+		HRGN tempRegion;
+
+		switch (type)
+		{
+		case 1:
+			tempRegion = CreateRectRgn(x, y, w, h);
+			break;
+
+		case 2:
+			token = wcstok(nullptr, L",", &context);
+			if (token)
+			{
+				while (token[0] == L' ') ++token;
+				int r =  m_Parser.ParseInt(token, 0);
+				tempRegion = CreateRoundRectRgn(x, y, w, h, r, r);
+			}
+			break;
+
+		case 3:
+			tempRegion = CreateEllipticRgn(x, y, w, h);
+			break;
+
+		default:  // Unknown type
+			free(parseSz);
+			return;
+		}
+
+		CombineRgn(m_BlurRegion, m_BlurRegion, tempRegion, mode);
+		DeleteObject(tempRegion);
+	}
+	free(parseSz);
 }
 
 // Helper function that compares the given name to section's name.
@@ -1871,7 +1832,6 @@ void Skin::ReadOptions()
 	m_KeepOnScreen = parser.ReadBool(section, L"KeepOnScreen", true);
 	addWriteFlag(OPTION_KEEPONSCREEN);
 
-	m_UseD2D = parser.ReadBool(section, L"UseD2D", true);
 	m_SavePosition = parser.ReadBool(section, L"SavePosition", true);
 	m_WindowStartHidden = parser.ReadBool(section, L"StartHidden", false);
 	m_AutoSelectScreen = parser.ReadBool(section, L"AutoSelectScreen", false);
@@ -1978,11 +1938,6 @@ void Skin::WriteOptions(INT setting)
 			_itow_s(m_WindowZPosition, buffer, 10);
 			WritePrivateProfileString(section, L"AlwaysOnTop", buffer, iniFile);
 		}
-
-		if (setting & OPTION_USED2D)
-		{
-			WritePrivateProfileString(section, L"UseD2D", m_UseD2D ? L"1" : L"0", iniFile);
-		}
 	}
 }
 
@@ -2012,9 +1967,7 @@ bool Skin::ReadSkin()
 
 	m_Parser.Initialize(iniFile, this, nullptr, &resourcePath);
 
-	m_Canvas = Gfx::Canvas::Create(
-		m_UseD2D && GetRainmeter().GetUseD2D() ? Gfx::Renderer::PreferD2D : Gfx::Renderer::GDIP);
-	m_Canvas->SetAccurateText(m_Parser.ReadBool(L"Rainmeter", L"AccurateText", false));
+	m_Canvas.SetAccurateText(m_Parser.ReadBool(L"Rainmeter", L"AccurateText", false));
 
 	// Gotta have some kind of buffer during initialization
 	CreateDoubleBuffer(1, 1);
@@ -2094,37 +2047,34 @@ bool Skin::ReadSkin()
 	m_DefaultUpdateDivider = m_Parser.ReadInt(L"Rainmeter", L"DefaultUpdateDivider", 1);
 	m_ToolTipHidden = m_Parser.ReadBool(L"Rainmeter", L"ToolTipHidden", false);
 
-	if (IsWindowsVistaOrGreater())
+	if (m_Parser.ReadBool(L"Rainmeter", L"Blur", false))
 	{
-		if (m_Parser.ReadBool(L"Rainmeter", L"Blur", false))
+		const WCHAR* blurRegion = m_Parser.ReadString(L"Rainmeter", L"BlurRegion", L"", false).c_str();
+
+		if (*blurRegion)
 		{
-			const WCHAR* blurRegion = m_Parser.ReadString(L"Rainmeter", L"BlurRegion", L"", false).c_str();
+			m_BlurMode = BLURMODE_REGION;
+			m_BlurRegion = CreateRectRgn(0, 0, 0, 0);	// Create empty region
+			int i = 1;
 
-			if (*blurRegion)
+			do
 			{
-				m_BlurMode = BLURMODE_REGION;
-				m_BlurRegion = CreateRectRgn(0, 0, 0, 0);	// Create empty region
-				int i = 1;
+				ResizeBlur(blurRegion, RGN_OR);
 
-				do
-				{
-					ResizeBlur(blurRegion, RGN_OR);
-
-					// Check for BlurRegion2, BlurRegion3, etc.
-					_snwprintf_s(buffer, _TRUNCATE, L"BlurRegion%i", ++i);
-					blurRegion = m_Parser.ReadString(L"Rainmeter", buffer, L"").c_str();
-				}
-				while (*blurRegion);
+				// Check for BlurRegion2, BlurRegion3, etc.
+				_snwprintf_s(buffer, _TRUNCATE, L"BlurRegion%i", ++i);
+				blurRegion = m_Parser.ReadString(L"Rainmeter", buffer, L"").c_str();
 			}
-			else
-			{
-				m_BlurMode = BLURMODE_FULL;
-			}
+			while (*blurRegion);
 		}
 		else
 		{
-			m_BlurMode = BLURMODE_NONE;
+			m_BlurMode = BLURMODE_FULL;
 		}
+	}
+	else
+	{
+		m_BlurMode = BLURMODE_NONE;
 	}
 
 	// Load fonts in Resources folder
@@ -2135,7 +2085,7 @@ bool Skin::ReadSkin()
 
 		HANDLE find = FindFirstFileEx(
 			resourcePath.c_str(),
-			(IsWindows7OrGreater()) ? FindExInfoBasic : FindExInfoStandard,
+			FindExInfoBasic,
 			&fd,
 			FindExSearchNameMatch,
 			nullptr,
@@ -2143,7 +2093,7 @@ bool Skin::ReadSkin()
 
 		if (find != INVALID_HANDLE_VALUE)
 		{
-			m_FontCollection = m_Canvas->CreateFontCollection();
+			m_FontCollection = m_Canvas.CreateFontCollection();
 
 			do
 			{
@@ -2169,7 +2119,7 @@ bool Skin::ReadSkin()
 	{
 		if (!m_FontCollection)
 		{
-			m_FontCollection = m_Canvas->CreateFontCollection();
+			m_FontCollection = m_Canvas.CreateFontCollection();
 		}
 
 		int i = 1;
@@ -2208,9 +2158,40 @@ bool Skin::ReadSkin()
 			_wcsicmp(L"Variables", section) != 0 &&
 			_wcsicmp(L"Metadata", section) != 0)
 		{
-			const std::wstring& measureName = m_Parser.ReadString(section, L"Measure", L"", false);
+			std::wstring measureName = m_Parser.ReadString(section, L"Measure", L"", false);
 			if (!measureName.empty())
 			{
+				// In the past, Rainmeter included several default plugins. These plugins are now
+				// included in Rainmeter.dll, but old skins referencing the old plugins. Here, we
+				// attempt to translate:
+				//   Measure=Plugin
+				//   Plugin=Plugins\Foo.dll
+				//
+				// into:
+				//   Measure=Foo
+				if (_wcsicmp(measureName.c_str(), L"Plugin") == 0)
+				{
+					WCHAR* plugin =
+						PathFindFileName(m_Parser.ReadString(section, L"Plugin", L"", false).c_str());
+					PathRemoveExtension(plugin);
+
+					const WCHAR* const kOldDefaultPlugins[] =
+					{
+						L"MediaKey",
+						L"NowPlaying",
+						L"RecycleManager",
+						L"WebParser"
+					};
+					for (const auto* oldDefaultPlugin : kOldDefaultPlugins)
+					{
+						if (_wcsicmp(plugin, oldDefaultPlugin) == 0)
+						{
+							measureName = plugin;
+							break;
+						}
+					}
+				}
+
 				Measure* measure = Measure::Create(measureName.c_str(), this, section);
 				if (measure)
 				{
@@ -2479,7 +2460,7 @@ bool Skin::ResizeWindow(bool reset)
 */
 void Skin::CreateDoubleBuffer(int cx, int cy)
 {
-	m_Canvas->Resize(cx, cy);
+	m_Canvas.Resize(cx, cy);
 }
 
 /*
@@ -2506,18 +2487,18 @@ void Skin::Redraw()
 			cy = 1;
 		}
 
-		if (cx != m_Canvas->GetW() || cy != m_Canvas->GetH())
+		if (cx != m_Canvas.GetW() || cy != m_Canvas.GetH())
 		{
 			CreateDoubleBuffer(cx, cy);
 		}
 	}
 
-	if (!m_Canvas->BeginDraw())
+	if (!m_Canvas.BeginDraw())
 	{
 		return;
 	}
 
-	m_Canvas->Clear();
+	m_Canvas.Clear();
 
 	if (m_WindowW != 0 && m_WindowH != 0)
 	{
@@ -2525,7 +2506,7 @@ void Skin::Redraw()
 		{
 			const Rect dst(0, 0, m_WindowW, m_WindowH);
 			const Rect src(0, 0, m_Background->GetWidth(), m_Background->GetHeight());
-			m_Canvas->DrawBitmap(m_Background, dst, src);
+			m_Canvas.DrawBitmap(m_Background, dst, src);
 		}
 		else if (m_BackgroundMode == BGMODE_SOLID)
 		{
@@ -2536,14 +2517,14 @@ void Skin::Redraw()
 			{
 				if (m_SolidColor.GetValue() == m_SolidColor2.GetValue())
 				{
-					m_Canvas->Clear(m_SolidColor);
+					m_Canvas.Clear(m_SolidColor);
 				}
 				else
 				{
-					Gdiplus::Graphics& graphics = m_Canvas->BeginGdiplusContext();
+					Gdiplus::Graphics& graphics = m_Canvas.BeginGdiplusContext();
 					LinearGradientBrush gradient(r, m_SolidColor, m_SolidColor2, m_SolidAngle, TRUE);
 					graphics.FillRectangle(&gradient, r);
-					m_Canvas->EndGdiplusContext();
+					m_Canvas.EndGdiplusContext();
 				}
 			}
 
@@ -2561,9 +2542,9 @@ void Skin::Redraw()
 				Pen light(lightColor);
 				Pen dark(darkColor);
 
-				Gdiplus::Graphics& graphics = m_Canvas->BeginGdiplusContext();
+				Gdiplus::Graphics& graphics = m_Canvas.BeginGdiplusContext();
 				Meter::DrawBevel(graphics, r, light, dark);
-				m_Canvas->EndGdiplusContext();
+				m_Canvas.EndGdiplusContext();
 			}
 		}
 
@@ -2574,20 +2555,20 @@ void Skin::Redraw()
 			const Matrix* matrix = (*j)->GetTransformationMatrix();
 			if (matrix && !matrix->IsIdentity())
 			{
-				m_Canvas->SetTransform(*matrix);
-				(*j)->Draw(*m_Canvas);
-				m_Canvas->ResetTransform();
+				m_Canvas.SetTransform(*matrix);
+				(*j)->Draw(m_Canvas);
+				m_Canvas.ResetTransform();
 			}
 			else
 			{
-				(*j)->Draw(*m_Canvas);
+				(*j)->Draw(m_Canvas);
 			}
 		}
 	}
 
 	UpdateWindow(m_TransparencyValue, true);
 
-	m_Canvas->EndDraw();
+	m_Canvas.EndDraw();
 }
 
 /*
@@ -2757,14 +2738,14 @@ void Skin::Update(bool refresh)
 */
 void Skin::UpdateWindow(int alpha, bool canvasBeginDrawCalled)
 {
-	BLENDFUNCTION blendPixelFunction = {AC_SRC_OVER, 0, alpha, AC_SRC_ALPHA};
+	BLENDFUNCTION blendPixelFunction = {AC_SRC_OVER, 0, (BYTE)alpha, AC_SRC_ALPHA};
 	POINT ptWindowScreenPosition = {m_ScreenX, m_ScreenY};
 	POINT ptSrc = {0, 0};
-	SIZE szWindow = {m_Canvas->GetW(), m_Canvas->GetH()};
+	SIZE szWindow = {m_Canvas.GetW(), m_Canvas.GetH()};
 
-	if (!canvasBeginDrawCalled) m_Canvas->BeginDraw();
+	if (!canvasBeginDrawCalled) m_Canvas.BeginDraw();
 
-	HDC dcMemory = m_Canvas->GetDC();
+	HDC dcMemory = m_Canvas.GetDC();
 	if (!UpdateLayeredWindow(m_Window, nullptr, &ptWindowScreenPosition, &szWindow, dcMemory, &ptSrc, 0, &blendPixelFunction, ULW_ALPHA))
 	{
 		// Retry after resetting WS_EX_LAYERED flag.
@@ -2772,9 +2753,9 @@ void Skin::UpdateWindow(int alpha, bool canvasBeginDrawCalled)
 		AddWindowExStyle(WS_EX_LAYERED);
 		UpdateLayeredWindow(m_Window, nullptr, &ptWindowScreenPosition, &szWindow, dcMemory, &ptSrc, 0, &blendPixelFunction, ULW_ALPHA);
 	}
-	m_Canvas->ReleaseDC(dcMemory);
+	m_Canvas.ReleaseDC(dcMemory);
 
-	if (!canvasBeginDrawCalled) m_Canvas->EndDraw();
+	if (!canvasBeginDrawCalled) m_Canvas.EndDraw();
 
 	m_TransparencyValue = alpha;
 }
@@ -3097,7 +3078,7 @@ HWND Skin::GetWindowFromPoint(POINT pos)
 */
 bool Skin::HitTest(int x, int y)
 {
-	return m_Canvas->IsTransparentPixel(x, y);
+	return m_Canvas.IsTransparentPixel(x, y);
 }
 
 /*
@@ -3368,10 +3349,6 @@ LRESULT Skin::OnCommand(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		SetKeepOnScreen(!m_KeepOnScreen);
 		break;
 
-	case IDM_SKIN_USED2D:
-		SetUseD2D(!m_UseD2D);
-		break;
-
 	case IDM_SKIN_FAVORITE:
 		SetFavorite(!m_Favorite);
 		break;
@@ -3564,11 +3541,11 @@ void Skin::SetKeepOnScreen(bool b)
 	}
 }
 
-void Skin::SetUseD2D(bool b)
+void Skin::SetAutoSelectScreen(bool b)
 {
-	m_UseD2D = b;
-	WriteOptions(OPTION_USED2D);
-	Refresh(false);
+	m_AutoSelectScreen = b;
+	m_Parser.ResetMonitorVariables(this);  // Set present monitor variables
+	WriteOptions(OPTION_POSITION | OPTION_AUTOSELECTSCREEN);
 }
 
 void Skin::SetFavorite(bool b)
@@ -3846,11 +3823,11 @@ void Skin::SnapToWindow(Skin* skin, LPWINDOWPOS wp)
 */
 LRESULT Skin::OnDwmColorChange(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	if (m_BlurMode != BLURMODE_NONE && IsBlur() && c_DwmGetColorizationColor && c_DwmEnableBlurBehindWindow)
+	if (m_BlurMode != BLURMODE_NONE && IsBlur())
 	{
 		DWORD color;
 		BOOL opaque;
-		if (c_DwmGetColorizationColor(&color, &opaque) != S_OK)
+		if (DwmGetColorizationColor(&color, &opaque) != S_OK)
 		{
 			opaque = TRUE;
 		}
@@ -3867,10 +3844,10 @@ LRESULT Skin::OnDwmColorChange(UINT uMsg, WPARAM wParam, LPARAM lParam)
 */
 LRESULT Skin::OnDwmCompositionChange(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	if (m_BlurMode != BLURMODE_NONE && IsBlur() && c_DwmIsCompositionEnabled && c_DwmEnableBlurBehindWindow)
+	if (m_BlurMode != BLURMODE_NONE && IsBlur())
 	{
 		BOOL enabled;
-		if (c_DwmIsCompositionEnabled(&enabled) != S_OK)
+		if (DwmIsCompositionEnabled(&enabled) != S_OK)
 		{
 			enabled = FALSE;
 		}
@@ -3887,24 +3864,21 @@ LRESULT Skin::OnDwmCompositionChange(UINT uMsg, WPARAM wParam, LPARAM lParam)
 */
 void Skin::BlurBehindWindow(BOOL fEnable)
 {
-	if (c_DwmEnableBlurBehindWindow)
-	{
-		DWM_BLURBEHIND bb = {0};
-		bb.fEnable = fEnable;
+	DWM_BLURBEHIND bb = {0};
+	bb.fEnable = fEnable;
 
-		if (fEnable)
-		{
-			// Restore blur with whatever the region was prior to disabling
-			bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
-			bb.hRgnBlur = m_BlurRegion;
-			c_DwmEnableBlurBehindWindow(m_Window, &bb);
-		}
-		else
-		{
-			// Disable blur
-			bb.dwFlags = DWM_BB_ENABLE;
-			c_DwmEnableBlurBehindWindow(m_Window, &bb);
-		}
+	if (fEnable)
+	{
+		// Restore blur with whatever the region was prior to disabling
+		bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
+		bb.hRgnBlur = m_BlurRegion;
+		DwmEnableBlurBehindWindow(m_Window, &bb);
+	}
+	else
+	{
+		// Disable blur
+		bb.dwFlags = DWM_BB_ENABLE;
+		DwmEnableBlurBehindWindow(m_Window, &bb);
 	}
 }
 

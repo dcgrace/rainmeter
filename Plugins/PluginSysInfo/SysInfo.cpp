@@ -9,6 +9,7 @@
 #include <windows.h>
 #include <Iphlpapi.h>
 #include <Netlistmgr.h>
+#include <lm.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "../API/RainmeterAPI.h"
@@ -26,7 +27,7 @@ typedef struct
 	MONITORINFO m_MonitorInfo[32];	// Monitor information
 } MULTIMONITOR_INFO;
 
-MULTIMONITOR_INFO m_Monitors = {0};
+MULTIMONITOR_INFO m_Monitors = { 0 };
 
 enum MeasureType
 {
@@ -40,11 +41,13 @@ enum MeasureType
 	MEASURE_OS_BITS,
 	MEASURE_IDLE_TIME,
 	MEASURE_ADAPTER_DESCRIPTION,
+	MEASURE_ADAPTER_TYPE,
 	MEASURE_NET_MASK,
 	MEASURE_IP_ADDRESS,
 	MEASURE_GATEWAY_ADDRESS,
 	MEASURE_HOST_NAME,
 	MEASURE_DOMAIN_NAME,
+	MEASURE_DOMAINWORKGROUP,
 	MEASURE_DNS_SERVER,
 	MEASURE_INTERNET_CONNECTIVITY,
 	MEASURE_LAN_CONNECTIVITY,
@@ -135,7 +138,7 @@ PLUGIN_EXPORT void Reload(void* data, void* rm, double* maxValue)
 	else if (_wcsicmp(L"PAGESIZE", type) == 0)
 	{
 		measure->type = MEASURE_PAGESIZE;
-	}	
+	}
 	else if (_wcsicmp(L"OS_BITS", type) == 0)
 	{
 		measure->type = MEASURE_OS_BITS;
@@ -148,6 +151,11 @@ PLUGIN_EXPORT void Reload(void* data, void* rm, double* maxValue)
 	{
 		defaultData = 0;
 		measure->type = MEASURE_ADAPTER_DESCRIPTION;
+	}
+	else if (_wcsicmp(L"ADAPTER_TYPE", type) == 0)
+	{
+		defaultData = 0;
+		measure->type = MEASURE_ADAPTER_TYPE;
 	}
 	else if (_wcsicmp(L"NET_MASK", type) == 0)
 	{
@@ -171,6 +179,10 @@ PLUGIN_EXPORT void Reload(void* data, void* rm, double* maxValue)
 	else if (_wcsicmp(L"DOMAIN_NAME", type) == 0)
 	{
 		measure->type = MEASURE_DOMAIN_NAME;
+	}
+	else if (_wcsicmp(L"DOMAINWORKGROUP", type) == 0)
+	{
+		measure->type = MEASURE_DOMAINWORKGROUP;
 	}
 	else if (_wcsicmp(L"DNS_SERVER", type) == 0)
 	{
@@ -343,6 +355,44 @@ PLUGIN_EXPORT LPCWSTR GetString(void* data)
 		}
 		break;
 
+	case MEASURE_ADAPTER_TYPE:
+		if (ERROR_SUCCESS == GetAdaptersInfo((IP_ADAPTER_INFO*)tmpBuffer, &tmpBufferLen))
+		{
+			PIP_ADAPTER_INFO info = (IP_ADAPTER_INFO*)tmpBuffer;
+			int i = 0;
+			while (info)
+			{
+				if (measure->useBestInterface)
+				{
+					if (info->Index == measure->data)
+					{
+						switch (info->Type)
+						{
+						case IF_TYPE_ETHERNET_CSMACD: return L"Ethernet";
+						case IF_TYPE_IEEE80211: return L"Wireless";
+						}
+						return L"Other";
+					}
+				}
+				else
+				{
+					if (i == measure->data)
+					{
+						switch (info->Type)
+						{
+						case IF_TYPE_ETHERNET_CSMACD: return L"Ethernet";
+						case IF_TYPE_IEEE80211: return L"Wireless";
+						}
+						return L"Other";
+					}
+				}
+
+				info = info->Next;
+				++i;
+			}
+		}
+		break;
+
 	case MEASURE_IP_ADDRESS:
 		if (NO_ERROR == GetIpAddrTable((PMIB_IPADDRTABLE)tmpBuffer, &tmpBufferLen, FALSE))
 		{
@@ -448,6 +498,18 @@ PLUGIN_EXPORT LPCWSTR GetString(void* data)
 		}
 		break;
 
+	case MEASURE_DOMAINWORKGROUP:
+	{
+		LPWKSTA_INFO_102 info = nullptr;
+		if (NERR_Success == NetWkstaGetInfo(nullptr, 102, (BYTE**)&info))
+		{
+			wcscpy(sBuffer, info->wki102_langroup);
+			NetApiBufferFree(info);
+			return sBuffer;
+		}
+	}
+	break;
+
 	case MEASURE_DNS_SERVER:
 		if (ERROR_SUCCESS == GetNetworkParams((PFIXED_INFO)tmpBuffer, &tmpBufferLen))
 		{
@@ -495,9 +557,10 @@ PLUGIN_EXPORT double Update(void* data)
 			GetNativeSystemInfo(&si);
 			return (si.dwPageSize);
 		}
+
 	case MEASURE_OS_BITS:
 		{
-			SYSTEM_INFO si = {0};
+			SYSTEM_INFO si = { 0 };
 			GetNativeSystemInfo(&si);
 			return (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||
 				si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64) ? 64.0 : 32.0;
@@ -508,6 +571,40 @@ PLUGIN_EXPORT double Update(void* data)
 			LASTINPUTINFO idle = { sizeof(LASTINPUTINFO) };
 			GetLastInputInfo(&idle);
 			return (double)((GetTickCount() - idle.dwTime) / 1000);
+		}
+
+	case MEASURE_ADAPTER_TYPE:
+		{
+			BYTE tmpBuffer[7168];
+			ULONG tmpBufferLen = _countof(tmpBuffer);
+
+			if (ERROR_SUCCESS == GetAdaptersInfo((IP_ADAPTER_INFO*)tmpBuffer, &tmpBufferLen))
+			{
+				PIP_ADAPTER_INFO info = (IP_ADAPTER_INFO*)tmpBuffer;
+				int i = 0;
+				while (info)
+				{
+					if (measure->useBestInterface)
+					{
+						if (info->Index == measure->data)
+						{
+							return info->Type;
+						}
+					}
+					else
+					{
+						if (i == measure->data)
+						{
+							return info->Type;
+						}
+					}
+
+					info = info->Next;
+					++i;
+				}
+			}
+
+			return 0.0;
 		}
 
 	case MEASURE_INTERNET_CONNECTIVITY:
@@ -575,18 +672,21 @@ PLUGIN_EXPORT double Update(void* data)
 			DWORD ret = GetTimeZoneInformation(&tzi);
 			return ret == TIME_ZONE_ID_UNKNOWN ? -1.0 : ret - 1.0;
 		}
+
 	case MEASURE_TIMEZONE_BIAS:
 		{
 			TIME_ZONE_INFORMATION tzi;
 			GetTimeZoneInformation(&tzi);
 			return (double)tzi.Bias;
 		}
+
 	case MEASURE_TIMEZONE_STANDARD_BIAS:
 		{
 			TIME_ZONE_INFORMATION tzi;
 			GetTimeZoneInformation(&tzi);
 			return (double)tzi.StandardBias;
 		}
+
 	case MEASURE_TIMEZONE_DAYLIGHT_BIAS:
 		{
 			TIME_ZONE_INFORMATION tzi;
